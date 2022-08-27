@@ -78,8 +78,8 @@ public class Database
     {
         var connection = GetDbConnection();
         var parameters = new DynamicParameters();
-        parameters.Add("id", user.Author?.Id ?? user.Committer.Id);
-        parameters.Add("username", user.Author?.Login ?? user.Committer.Login);
+        parameters.Add("id", user.Author?.Id ?? user.Committer?.Id ?? 0);
+        parameters.Add("username", user.Author?.Login ?? user.Committer?.Login ?? "[unknown]");
         parameters.Add("email", user.Commit.Author.Email);
 
         await connection.ExecuteAsync(@"
@@ -93,14 +93,14 @@ public class Database
 
     public async Task AddCommit(Repository repo, GitHubCommit commit)
     {
-        Log.Debug("[Thread-{Thread}] Adding commit {Sha} in {RepoName} by {Author}", Environment.CurrentManagedThreadId, commit.Sha, repo.Name, commit.Author?.Login ?? commit.Committer.Login);
+        Log.Debug("[Thread-{Thread}] Adding commit {Sha} in {RepoName} by {Author}", Environment.CurrentManagedThreadId, commit.Sha, repo.Name, commit.Author?.Login ?? commit.Committer?.Login ?? "[unknown]");
 
         var connection = GetDbConnection();
         var parameters = new DynamicParameters();
         parameters.Add("sha", commit.Sha);
         parameters.Add("message", commit.Commit.Message);
         parameters.Add("date", commit.Commit.Committer.Date);
-        parameters.Add("userId", commit.Author?.Id ?? commit.Committer.Id);
+        parameters.Add("userId", commit.Author?.Id ?? commit.Committer?.Id ?? 0);
         parameters.Add("repoId", repo.Id);
 
         await connection.ExecuteAsync(@"
