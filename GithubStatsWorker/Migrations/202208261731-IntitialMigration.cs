@@ -1,10 +1,9 @@
 using FluentMigrator;
-using Octokit;
 using Migration = FluentMigrator.Migration;
 
 namespace GithubStatsWorker.Migrations;
 
-[Migration(202208261731)]
+[TimestampedMigration(2022, 08, 26, 17, 31)]
 public class InitialMigration : Migration
 {
     public override void Up()

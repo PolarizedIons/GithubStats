@@ -49,7 +49,7 @@ var leftToProcess = repos.Count;
 using var resetEvent = new ManualResetEvent(false);
 foreach (var repo in repos)
 {
-    var worker = new Worker(db, config, ghClient, repo);
+    var worker = new Worker(db, ghClient, repo);
     ThreadPool.QueueUserWorkItem(async x =>
     {
         await worker.UpdateRepoStats(null);

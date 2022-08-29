@@ -70,22 +70,29 @@ public class Database
             VALUES (@id, @owner, @name, @defaultBranch)
             ON CONFLICT (""Id"") 
             DO 
-               UPDATE SET ""Name"" = excluded.""Name"", ""DefaultBranch"" = excluded.""DefaultBranch""
+               UPDATE SET ""Name"" = excluded.""Name"",
+                          ""DefaultBranch"" = excluded.""DefaultBranch""
         ", parameters);
     }
 
-    public async Task TryAddUserFromCommit(GitHubCommit user)
+    public async Task TryAddUserFromCommit(GitHubCommit commit)
     {
+        var userId = commit.Author?.Id ?? commit.Committer?.Id;
+        if (userId is null)
+        {
+            return;
+        }
+
         var connection = GetDbConnection();
         var parameters = new DynamicParameters();
-        parameters.Add("id", user.Author?.Id ?? user.Committer?.Id ?? 0);
-        parameters.Add("username", user.Author?.Login ?? user.Committer?.Login ?? "[unknown]");
-        parameters.Add("email", user.Commit.Author.Email);
+        parameters.Add("id", userId);
+        parameters.Add("username", commit.Author?.Login ?? commit.Committer?.Login ?? commit.Commit.Author?.Email ?? commit.Commit.Committer?.Email);
+        parameters.Add("email", commit.Commit.Author?.Email ?? commit.Commit.Committer?.Email);
 
         await connection.ExecuteAsync(@"
             INSERT INTO ""Users"" (""Id"", ""Username"", ""Email"")
             VALUES (@id, @username, @email)
-            ON CONFLICT (""Id"") 
+            ON CONFLICT (""Id"")
             DO 
                UPDATE SET ""Username"" = excluded.""Username"", ""Email"" = excluded.""Email""
         ", parameters);
@@ -93,19 +100,21 @@ public class Database
 
     public async Task AddCommit(Repository repo, GitHubCommit commit)
     {
-        Log.Debug("[Thread-{Thread}] Adding commit {Sha} in {RepoName} by {Author}", Environment.CurrentManagedThreadId, commit.Sha, repo.Name, commit.Author?.Login ?? commit.Committer?.Login ?? "[unknown]");
+        Log.Debug("[Thread-{Thread}] Adding commit {Sha} in {RepoName} by {Author}", Environment.CurrentManagedThreadId, commit.Sha, repo.Name, (commit.Author?.Login ?? commit.Committer?.Login ?? commit.Commit.Author?.Name ?? commit.Commit.Committer?.Name) ?? "[unknown]");
 
         var connection = GetDbConnection();
         var parameters = new DynamicParameters();
         parameters.Add("sha", commit.Sha);
         parameters.Add("message", commit.Commit.Message);
-        parameters.Add("date", commit.Commit.Committer.Date);
-        parameters.Add("userId", commit.Author?.Id ?? commit.Committer?.Id ?? 0);
+        parameters.Add("date", commit.Commit.Author?.Date ?? commit.Commit.Committer!.Date);
+        parameters.Add("userId", commit.Author?.Id ?? commit.Committer?.Id);
         parameters.Add("repoId", repo.Id);
+        parameters.Add("commitUsername", commit.Commit.Author?.Name ?? commit.Commit.Committer?.Name);
+        parameters.Add("commitEmail", commit.Commit.Author?.Email ?? commit.Commit.Committer?.Email);
 
         await connection.ExecuteAsync(@"
-            INSERT INTO ""Commits"" (""Sha"", ""Message"", ""Date"", ""UserId"", ""RepoId"")
-            VALUES (@sha, @message, @date, @UserId, @repoId)
+            INSERT INTO ""Commits"" (""Sha"", ""Message"", ""Date"", ""UserId"", ""RepoId"", ""CommitUsername"", ""CommitEmail"")
+            VALUES (@sha, @message, @date, @UserId, @repoId, @commitUsername, @commitEmail)
             ON CONFLICT (""Sha"") DO NOTHING
         ", parameters);
     }

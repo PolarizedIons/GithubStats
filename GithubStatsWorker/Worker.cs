@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using Octokit;
 using Serilog;
 
@@ -7,14 +6,12 @@ namespace GithubStatsWorker;
 public class Worker
 {
     private readonly Database _db;
-    private readonly IConfiguration _config;
     private readonly GitHubClient _gitHubClient;
     private readonly Repository _repo;
 
-    public Worker(Database db, IConfiguration config, GitHubClient gitHubClient, Repository repo)
+    public Worker(Database db, GitHubClient gitHubClient, Repository repo)
     {
         _db = db;
-        _config = config;
         _gitHubClient = gitHubClient;
         _repo = repo;
     }
@@ -30,12 +27,14 @@ public class Worker
         {
             Since = lastCommit?.Date,
         });
-        Log.Debug("[Thread-{Thread}] {RepoName} has {Count} commits", Environment.CurrentManagedThreadId, _repo.FullName, commits.Count);
+        Log.Debug("[Thread-{Thread}] {RepoName}: Processing {Count} commits", Environment.CurrentManagedThreadId, _repo.FullName, commits.Count);
         
         foreach (var commit in commits)
         {
             await _db.TryAddUserFromCommit(commit);
             await _db.AddCommit(_repo, commit);
         }
+        
+        Log.Debug("[Thread-{Thread}] {RepoName}: Done", Environment.CurrentManagedThreadId, _repo.FullName);
     }
 }
