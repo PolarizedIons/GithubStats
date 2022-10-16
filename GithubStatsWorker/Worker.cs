@@ -34,26 +34,26 @@ public class Worker
         var sleepTime = rateLimit.Reset - DateTime.UtcNow;
         do {
             Log.Information("Sleeping to avoid rate limit, until {ResetTime} ({Time}s)", rateLimit.Reset, (int)(sleepTime.TotalSeconds));
-            Thread.Sleep(TimeSpan.FromSeconds(10));
+            Thread.Sleep(TimeSpan.FromSeconds(30));
             sleepTime = rateLimit.Reset - DateTime.UtcNow;
         } while (rateLimit.Reset > DateTime.UtcNow);
     }
 
     public async Task UpdateRepoStats(object? state)
     {
-        Log.Debug("[Thread-{Thread}] {RepoName}: Starting work...", Environment.CurrentManagedThreadId, _repo.FullName);
+        Log.Debug("{RepoName}: Starting work...",_repo.FullName);
         await _db.TryAddRepo(_repo);
 
         await UpdateCommitStats();
         await UpdatePrStats();
 
-        Log.Debug("[Thread-{Thread}] {RepoName}: Done", Environment.CurrentManagedThreadId, _repo.FullName);
+        Log.Debug("{RepoName}: Done",_repo.FullName);
     }
 
     private async Task UpdateCommitStats()
     {
         var lastCommit = await _db.GetLatestCommitForRepository(_repo.Id);
-        Log.Debug("[Thread-{Thread}] {RepoName}: Last fetched commit was at {Timestamp}", Environment.CurrentManagedThreadId, _repo.FullName, lastCommit?.Date.ToString( ) ?? "never");
+        Log.Debug("{RepoName}: Last fetched commit was at {Timestamp}",_repo.FullName, lastCommit?.Date.ToString( ) ?? "never");
 
         IReadOnlyList<GitHubCommit> commits = Array.Empty<GitHubCommit>();
         try
@@ -69,7 +69,7 @@ public class Worker
             // Ignore: Git repository is empty
         }
 
-        Log.Debug("[Thread-{Thread}] {RepoName}: Processing {Count} commits", Environment.CurrentManagedThreadId, _repo.FullName, commits.Count);
+        Log.Debug("{RepoName}: Processing {Count} commits",_repo.FullName, commits.Count);
 
         foreach (var commit in commits)
         {
@@ -91,7 +91,7 @@ public class Worker
             SortProperty = PullRequestSort.Created,
         });
 
-        Log.Debug("[Thread-{Thread}] {RepoName} has {Count} total PRs, we know of {PrevPrNumber}", Environment.CurrentManagedThreadId, _repo.FullName, prs.Count, lastPr?.Number ?? 0);
+        Log.Debug("{RepoName} has {Count} total PRs, last processed #{PrevPrNumber}",_repo.FullName, prs.Count, lastPr?.Number ?? 0);
         foreach (var pullRequest in prs.Skip((int)((lastPr?.Number ?? 1L) - 1L)))
         {
             AvoidApiRateLimit();

@@ -136,7 +136,7 @@ public class Database
 
     private async Task AddCommit(Repository repo, string sha, string message, DateTimeOffset date, long? userId, string commitUsername, string commitEmail)
     {
-        Log.Debug("[Thread-{Thread}] Adding commit {Sha} in {RepoName} by {Author}", Environment.CurrentManagedThreadId, sha, repo.Name, commitUsername);
+        Log.Debug("Adding commit {Sha} in {RepoName} by {Author}",sha, repo.Name, commitUsername);
 
         await using var connection = GetDbConnection();
         var parameters = new DynamicParameters();
@@ -171,7 +171,7 @@ public class Database
 
     public async Task UpsertPullRequest(Repository repo, PullRequest pullRequest)
     {
-        Log.Debug("[Thread-{Thread}] {RepoName}: Processing PR {PRNumber}: {PRTitle}", Environment.CurrentManagedThreadId, repo.FullName, pullRequest.Number, pullRequest.Title);
+        Log.Debug("{RepoName}: Processing PR {PRNumber}: {PRTitle}",repo.FullName, pullRequest.Number, pullRequest.Title);
 
         await TryAddUser(pullRequest.User.Id, pullRequest.User.Name ?? pullRequest.User.Login, pullRequest.User.Email);
         if (pullRequest.MergedBy is not null)
@@ -269,10 +269,10 @@ public class Database
 
     public async Task UpsertPullRequestReview(Repository repository, PullRequest pullRequest, PullRequestReview review)
     {
-        Log.Debug("[Thread-{Thread}] {RepoName}: Processing PR {PRNumber} review", Environment.CurrentManagedThreadId, repository.FullName, pullRequest.Number);
+        Log.Debug("{RepoName}: Processing PR {PRNumber} review {ReviewId}",repository.FullName, pullRequest.Number, review.Id);
 
         await TryAddUser(review.User.Id, review.User.Name ?? review.User.Login, review.User.Email);
-        await TryAddRequestedReview(repository.Id, review.User.Id);
+        await TryAddRequestedReview(pullRequest.Id, review.User.Id);
 
         await using var connection = GetDbConnection();
         var parameters = new DynamicParameters();
@@ -302,7 +302,7 @@ public class Database
 
     public async Task UpsertPullRequestCommit(Repository repository, PullRequest pullRequest, PullRequestCommit commit)
     {
-        Log.Debug("[Thread-{Thread}] {RepoName}: Processing PR {PRNumber} commit {CommitSha}", Environment.CurrentManagedThreadId, repository.FullName, pullRequest.Number, commit.Sha);
+        Log.Debug("{RepoName}: Processing PR {PRNumber} commit {CommitSha}",repository.FullName, pullRequest.Number, commit.Sha);
 
         var userId = commit.Author?.Id ?? commit.Committer?.Id;
         if (userId is not null)
