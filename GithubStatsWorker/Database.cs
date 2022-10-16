@@ -178,39 +178,29 @@ public class Database
         {
             await TryAddUser(pullRequest.MergedBy.Id, pullRequest.MergedBy.Name, pullRequest.MergedBy.Email);
         }
-        
-        foreach (var requestedReviewer in pullRequest.RequestedReviewers)
+
         {
-            await TryAddUser(requestedReviewer.Id, requestedReviewer.Name, requestedReviewer.Email);
-            await TryAddRequestedReview(pullRequest.Id, requestedReviewer.Id);
-        }
+            await using var connection = GetDbConnection();
+            var parameters = new DynamicParameters();
+            parameters.Add("id", pullRequest.Id);
+            parameters.Add("number", pullRequest.Number);
+            parameters.Add("state", pullRequest.State.StringValue);
+            parameters.Add("title", pullRequest.Title);
+            parameters.Add("body", pullRequest.Body);
+            parameters.Add("createdAt", pullRequest.CreatedAt);
+            parameters.Add("updatedAt", pullRequest.UpdatedAt);
+            parameters.Add("closedAt", pullRequest.ClosedAt);
+            parameters.Add("mergedAt", pullRequest.MergedAt);
+            parameters.Add("commentsCount", pullRequest.Comments);
+            parameters.Add("commitsCount", pullRequest.Commits);
+            parameters.Add("additionsCount", pullRequest.Additions);
+            parameters.Add("deletionsCount", pullRequest.Deletions);
+            parameters.Add("changedFilesCount", pullRequest.ChangedFiles);
+            parameters.Add("creatorUserId", pullRequest.User.Id);
+            parameters.Add("mergerUserId", pullRequest.MergedBy?.Id);
+            parameters.Add("repoId", repo.Id);
 
-        foreach (var label in pullRequest.Labels)
-        {
-            await TryAddPRLabel(pullRequest, label);
-        }
-
-        await using var connection = GetDbConnection();
-        var parameters = new DynamicParameters();
-        parameters.Add("id", pullRequest.Id);
-        parameters.Add("number", pullRequest.Number);
-        parameters.Add("state", pullRequest.State.StringValue);
-        parameters.Add("title", pullRequest.Title);
-        parameters.Add("body", pullRequest.Body);
-        parameters.Add("createdAt", pullRequest.CreatedAt);
-        parameters.Add("updatedAt", pullRequest.UpdatedAt);
-        parameters.Add("closedAt", pullRequest.ClosedAt);
-        parameters.Add("mergedAt", pullRequest.MergedAt);
-        parameters.Add("commentsCount", pullRequest.Comments);
-        parameters.Add("commitsCount", pullRequest.Commits);
-        parameters.Add("additionsCount", pullRequest.Additions);
-        parameters.Add("deletionsCount", pullRequest.Deletions);
-        parameters.Add("changedFilesCount", pullRequest.ChangedFiles);
-        parameters.Add("creatorUserId", pullRequest.User.Id);
-        parameters.Add("mergerUserId", pullRequest.MergedBy?.Id);
-        parameters.Add("repoId", repo.Id);
-
-        await connection.ExecuteAsync(@"
+            await connection.ExecuteAsync(@"
             insert into ""PullRequests""(""Id"", ""Number"", ""State"", ""Title"", ""Body"", ""CreatedAt"", ""UpdatedAt"", ""ClosedAt"", ""MergedAt"", ""CommentsCount"", ""CommitsCount"", ""AdditionsCount"", ""DeletionsCount"", ""ChangedFilesCount"", ""CreatorUserId"", ""MergerUserId"", ""RepoId"", ""ScanCompleted"")
             values (@id, @number, @state, @title, @body, @createdAt, @updatedAt, @closedAt, @mergedAt, @commentsCount, @commitsCount, @additionsCount, @deletionsCount, @changedFilesCount, @creatorUserId, @mergerUserId, @repoId, false)
             on conflict (""Id"") do
@@ -228,7 +218,24 @@ public class Database
                     ""ChangedFilesCount"" = excluded.""ChangedFilesCount"",
                     ""MergerUserId"" = excluded.""MergerUserId"",
                     ""ScanCompleted"" = excluded.""ScanCompleted""
-        ", parameters);
+            ", parameters);
+        }
+
+        foreach (var requestedReviewer in pullRequest.RequestedReviewers)
+        {
+            if (requestedReviewer is null)
+            {
+                continue;
+            }
+
+            await TryAddUser(requestedReviewer.Id, requestedReviewer.Name ?? "[unknown]", requestedReviewer.Email ?? "[unknown]");
+            await TryAddRequestedReview(pullRequest.Id, requestedReviewer.Id);
+        }
+
+        foreach (var label in pullRequest.Labels)
+        {
+            await TryAddPRLabel(pullRequest, label);
+        }
     }
 
     private async Task TryAddPRLabel(PullRequest pullRequest, Label label)
@@ -242,7 +249,7 @@ public class Database
         await connection.ExecuteAsync(@"
             insert into ""PullRequestLabels""(""PullRequestId"", ""LabelId"", ""LabelName"")
             values (@prId, @labelId, @labelName)
-            on conflict (""PullRequestId"", ""LabelId"" ""LabelName"") do nothing;
+            on conflict (""PullRequestId"", ""LabelId"") do nothing;
         ", parameters);
     }
 

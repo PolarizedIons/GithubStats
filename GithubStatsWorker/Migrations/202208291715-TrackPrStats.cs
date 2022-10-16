@@ -31,13 +31,13 @@ public class TrackPrStats : Migration
             .AddColumn("LastPR").AsInt64().Nullable().ForeignKey("PullRequests", "Id");
 
         Create.Table("PullRequestLabels")
-            .WithColumn("PullRequestId").AsInt64().NotNullable().ForeignKey("PullRequests", "Id")
-            .WithColumn("LabelId").AsInt64().NotNullable()
+            .WithColumn("PullRequestId").AsInt64().NotNullable().PrimaryKey().ForeignKey("PullRequests", "Id")
+            .WithColumn("LabelId").AsInt64().NotNullable().PrimaryKey()
             .WithColumn("LabelName").AsString().NotNullable();
 
         Create.Table("PullRequestRequestedReviewers")
-            .WithColumn("PullRequestId").AsInt64().NotNullable().ForeignKey("PullRequests", "Id")
-            .WithColumn("ReviewerId").AsInt64().NotNullable().ForeignKey("Users", "Id");
+            .WithColumn("PullRequestId").AsInt64().NotNullable().PrimaryKey().ForeignKey("PullRequests", "Id")
+            .WithColumn("ReviewerId").AsInt64().NotNullable().PrimaryKey().ForeignKey("Users", "Id");
 
         Create.Table("PullRequestReviews")
             .WithColumn("Id").AsInt64().NotNullable().PrimaryKey()
