@@ -40,22 +40,22 @@ while (true)
 
 Log.Information("Got {Count} repos from {Target}", repos.Count, config["Github:Target"]);
 
-Log.Debug("Queueing workers...");
-var workerThreads = int.Parse(config["Github:WorkerThreads"]);
-ThreadPool.SetMinThreads(workerThreads, workerThreads);
-ThreadPool.SetMinThreads(workerThreads,workerThreads);
+// Log.Debug("Queueing workers...");
+// var workerThreads = int.Parse(config["Github:WorkerThreads"]);
+// ThreadPool.SetMinThreads(1, 1);
+// ThreadPool.SetMaxThreads(workerThreads,workerThreads);
 
-var leftToProcess = repos.Count;
-using var resetEvent = new ManualResetEvent(false);
+// var leftToProcess = repos.Count;
+// using var resetEvent = new ManualResetEvent(false);
 foreach (var repo in repos)
 {
     var worker = new Worker(db, ghClient, repo);
-    ThreadPool.QueueUserWorkItem(async x =>
-    {
+    // ThreadPool.QueueUserWorkItem(async _ =>
+    // {
         await worker.UpdateRepoStats(null);
-        if (Interlocked.Decrement(ref leftToProcess) == 0)
-            resetEvent.Set();
-    });
+    //     if (Interlocked.Decrement(ref leftToProcess) == 0)
+    //         resetEvent.Set();
+    // });
 }
-resetEvent.WaitOne();
+// resetEvent.WaitOne();
 Log.Information("Done :)");

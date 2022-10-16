@@ -11,7 +11,10 @@ public class AddUserDataToCommit : Migration
             .AlterColumn("UserId").AsInt64().Nullable()
             .AddColumn("CommitUsername").AsString().NotNullable()
             .AddColumn("CommitEmail").AsString().NotNullable();
-        
+
+        Alter.Table("Users")
+            .AlterColumn("Email").AsString().Nullable();
+
         Execute.Sql(@"
             truncate table ""Commits""; 
         ");
