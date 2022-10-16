@@ -272,6 +272,7 @@ public class Database
         Log.Debug("[Thread-{Thread}] {RepoName}: Processing PR {PRNumber} review", Environment.CurrentManagedThreadId, repository.FullName, pullRequest.Number);
 
         await TryAddUser(review.User.Id, review.User.Name ?? review.User.Login, review.User.Email);
+        await TryAddRequestedReview(repository.Id, review.User.Id);
 
         await using var connection = GetDbConnection();
         var parameters = new DynamicParameters();
