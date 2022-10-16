@@ -178,6 +178,17 @@ public class Database
         {
             await TryAddUser(pullRequest.MergedBy.Id, pullRequest.MergedBy.Name, pullRequest.MergedBy.Email);
         }
+        
+        foreach (var requestedReviewer in pullRequest.RequestedReviewers)
+        {
+            await TryAddUser(requestedReviewer.Id, requestedReviewer.Name, requestedReviewer.Email);
+            await TryAddRequestedReview(pullRequest.Id, requestedReviewer.Id);
+        }
+
+        foreach (var label in pullRequest.Labels)
+        {
+            await TryAddPRLabel(pullRequest, label);
+        }
 
         await using var connection = GetDbConnection();
         var parameters = new DynamicParameters();
@@ -217,6 +228,35 @@ public class Database
                     ""ChangedFilesCount"" = excluded.""ChangedFilesCount"",
                     ""MergerUserId"" = excluded.""MergerUserId"",
                     ""ScanCompleted"" = excluded.""ScanCompleted""
+        ", parameters);
+    }
+
+    private async Task TryAddPRLabel(PullRequest pullRequest, Label label)
+    {
+        await using var connection = GetDbConnection();
+        var parameters = new DynamicParameters();
+        parameters.Add("prId", pullRequest.Id);
+        parameters.Add("labelId", label.Id);
+        parameters.Add("labelName", label.Name);
+
+        await connection.ExecuteAsync(@"
+            insert into ""PullRequestLabels""(""PullRequestId"", ""LabelId"", ""LabelName"")
+            values (@prId, @labelId, @labelName)
+            on conflict (""PullRequestId"", ""LabelId"" ""LabelName"") do nothing;
+        ", parameters);
+    }
+
+    private async Task TryAddRequestedReview(long pullRequestId, int userId)
+    {
+        await using var connection = GetDbConnection();
+        var parameters = new DynamicParameters();
+        parameters.Add("prId", pullRequestId);
+        parameters.Add("userId", userId);
+
+        await connection.ExecuteAsync(@"
+            insert into ""PullRequestRequestedReviewers""(""PullRequestId"", ""ReviewerId"")
+            values (@prId, @userId)
+            on conflict (""PullRequestId"", ""ReviewerId"") do nothing;
         ", parameters);
     }
 
