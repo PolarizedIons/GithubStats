@@ -1,24 +1,27 @@
+using System.Data;
 using Dapper;
 using FluentMigrator.Runner;
 using FluentMigrator.Runner.Announcers;
 using FluentMigrator.Runner.Initialization;
 using FluentMigrator.Runner.Processors;
+using GithubStatsWorker.Entities;
 using Microsoft.Extensions.Configuration;
-using Octokit;
 using Npgsql;
+using Octokit.GraphQL.Model;
 using Serilog;
-using Repository = Octokit.Repository;
 
 
 namespace GithubStatsWorker;
 
-public class Database
+public class Database : IDisposable
 {
     private readonly IConfiguration _config;
+    private static IDbConnection? _connection;
 
     public Database(IConfiguration config)
     {
         _config = config;
+        _connection ??= GetDbConnection();
     }
 
     
@@ -44,11 +47,10 @@ public class Database
 
     public async Task<Entities.Commit?> GetLatestCommitForRepository(long id)
     {
-        await using var connection = GetDbConnection();
         var parameters = new DynamicParameters();
         parameters.Add("id", id);
 
-        return await connection.QuerySingleOrDefaultAsync<Entities.Commit>(@"
+        return await _connection.QuerySingleOrDefaultAsync<Entities.Commit>(@"
             select c.* 
             from ""Commits"" c
             join ""Repositories"" r on c.""RepoId"" = r.""Id""
@@ -57,98 +59,88 @@ public class Database
             limit 1", parameters);
     }
 
-    public async Task TryAddRepo(Repository repo)
+    public async Task TryAddRepo(Entities.Repository repo)
     {
-        await using var connection = GetDbConnection();
         var parameters = new DynamicParameters();
         parameters.Add("id", repo.Id);
-        parameters.Add("owner", repo.Owner.Login);
+        parameters.Add("owner", repo.Owner);
         parameters.Add("name", repo.Name);
         parameters.Add("defaultBranch", repo.DefaultBranch);
 
-        await connection.ExecuteAsync(@"
+        await _connection.ExecuteAsync(@"
             INSERT INTO ""Repositories"" (""Id"", ""Owner"", ""Name"", ""DefaultBranch"")
             VALUES (@id, @owner, @name, @defaultBranch)
             ON CONFLICT (""Id"") 
             DO 
-               UPDATE SET ""Name"" = excluded.""Name"",
+               UPDATE SET ""Owner"" = excluded.""Owner"",
+                          ""Name"" = excluded.""Name"",
                           ""DefaultBranch"" = excluded.""DefaultBranch""
         ", parameters);
     }
 
-    public async Task TryAddUserFromCommit(GitHubCommit commit)
+    public async Task TryAddUser(long userId, string username, string email)
     {
-        var userId = commit.Author?.Id ?? commit.Committer?.Id;
-        if (userId is null)
+        if (userId == default)
         {
             return;
         }
 
-        await TryAddUser(
-            userId.Value,
-            commit.Author?.Login ?? commit.Committer?.Login ?? commit.Commit.Author?.Email ?? commit.Commit.Committer?.Email ?? "[unknown]",
-            commit.Commit.Author?.Email ?? commit.Commit.Committer?.Email ?? "[unknown]"
-        );
-    }
-
-    private async Task TryAddUser(long userId, string username, string email)
-    {
-        await using var connection = GetDbConnection();
         var parameters = new DynamicParameters();
         parameters.Add("id", userId);
         parameters.Add("username", username);
         parameters.Add("email", email);
 
-        await connection.ExecuteAsync(@"
+        await _connection.ExecuteAsync(@"
             INSERT INTO ""Users"" as u (""Id"", ""Username"", ""Email"")
             VALUES (@id, @username, @email)
             ON CONFLICT (""Id"")
             DO 
-               UPDATE SET ""Username"" = coalesce(excluded.""Username"", u.""Username""), ""Email"" = coalesce(excluded.""Email"", u.""Email"")
+               UPDATE SET ""Username"" = coalesce(excluded.""Username"", u.""Username"", @username), ""Email"" = coalesce(excluded.""Email"", u.""Email"", @email)
         ", parameters);
     }
 
-    public async Task AddCommit(Repository repo, GitHubCommit commit)
+    public async Task TryAddCommit(Entities.Repository repo, Entities.Commit commit)
     {
-        await AddCommit(
+        await TryAddUser(commit.UserId, commit.UserName, commit.UserEmail);
+        await TryAddCommit(
             repo,
             commit.Sha,
-            commit.Commit.Message,
-            commit.Commit.Author?.Date ?? commit.Commit.Committer!.Date,
-            commit.Author?.Id ?? commit.Committer?.Id,
-            commit.Commit.Author?.Name ?? commit.Commit.Committer.Name,
-            commit.Commit.Author?.Email ?? commit.Commit.Committer.Email
+            commit.Message,
+            commit.Date,
+            commit.UserId,
+            commit.UserName,
+            commit.UserEmail
         );
     }
 
-    private async Task AddCommit(Repository repo, PullRequestCommit commit)
+    private async Task TryAddCommit(Entities.Repository repo, Entities.PullRequestCommits commit)
     {
-        await AddCommit(
+        await TryAddUser(commit.UserId, commit.UserName, commit.UserEmail);
+        await TryAddCommit(
             repo,
             commit.Sha,
-            commit.Commit.Message,
-            commit.Commit.Author?.Date ?? commit.Commit.Committer!.Date,
-            commit.Author?.Id ?? commit.Committer?.Id,
-            commit.Commit.Author?.Name ?? commit.Commit.Committer.Name,
-            commit.Commit.Author?.Email ?? commit.Commit.Committer.Email
+            commit.Message,
+            commit.Date,
+            commit.UserId,
+            commit.UserName,
+            commit.UserEmail
         );
     }
 
-    private async Task AddCommit(Repository repo, string sha, string message, DateTimeOffset date, long? userId, string commitUsername, string commitEmail)
+    private async Task TryAddCommit(Entities.Repository repo, string sha, string message, DateTimeOffset date, long userId, string commitUserName, string commitEmail)
     {
-        Log.Debug("Adding commit {Sha} in {RepoName} by {Author}",sha, repo.Name, commitUsername);
+        Log.Debug("Adding commit {Sha} in {RepoName} by {Author}",sha, repo.Name, commitUserName);
 
-        await using var connection = GetDbConnection();
         var parameters = new DynamicParameters();
         parameters.Add("sha", sha);
         parameters.Add("message", message);
         parameters.Add("date", date);
-        parameters.Add("userId", userId);
+        parameters.Add("userId", userId == default ? null : userId);
         parameters.Add("repoId", repo.Id);
-        parameters.Add("commitUsername", commitUsername);
+        parameters.Add("commitUsername", commitUserName);
         parameters.Add("commitEmail", commitEmail);
 
-        await connection.ExecuteAsync(@"
+        await _connection.ExecuteAsync(@"
             INSERT INTO ""Commits"" (""Sha"", ""Message"", ""Date"", ""UserId"", ""RepoId"", ""CommitUsername"", ""CommitEmail"")
             VALUES (@sha, @message, @date, @UserId, @repoId, @commitUsername, @commitEmail)
             ON CONFLICT (""Sha"") DO NOTHING
@@ -157,11 +149,10 @@ public class Database
 
     public async Task<Entities.PullRequest> GetLastUpdatedPrForRepository(long id)
     {
-        await using var connection = GetDbConnection();
         var parameters = new DynamicParameters();
         parameters.Add("id", id);
 
-        return await connection.QuerySingleOrDefaultAsync<Entities.PullRequest>(@"
+        return await _connection.QuerySingleOrDefaultAsync<Entities.PullRequest>(@"
             select pr.* 
             from ""Repositories"" repo
             join ""PullRequests"" pr on pr.""Id"" = repo.""LastPR""
@@ -169,121 +160,108 @@ public class Database
             parameters);
     }
 
-    public async Task UpsertPullRequest(Repository repo, PullRequest pullRequest)
+    public async Task UpsertPullRequest(Entities.Repository repo, Entities.PullRequest pullRequest)
     {
-        Log.Debug("{RepoName}: Processing PR {PRNumber}: {PRTitle}",repo.FullName, pullRequest.Number, pullRequest.Title);
+        Log.Debug("{RepoName}: Processing PR {PRNumber}: {PRTitle}",repo.Name, pullRequest.Number, pullRequest.Title);
 
-        await TryAddUser(pullRequest.User.Id, pullRequest.User.Name ?? pullRequest.User.Login, pullRequest.User.Email);
-        if (pullRequest.MergedBy is not null)
-        {
-            await TryAddUser(pullRequest.MergedBy.Id, pullRequest.MergedBy.Name, pullRequest.MergedBy.Email);
-        }
+        var parameters = new DynamicParameters();
+        parameters.Add("id", pullRequest.Id);
+        parameters.Add("number", pullRequest.Number);
+        parameters.Add("state", pullRequest.State);
+        parameters.Add("title", pullRequest.Title);
+        parameters.Add("body", pullRequest.Body);
+        parameters.Add("createdAt", pullRequest.CreatedAt);
+        parameters.Add("updatedAt", pullRequest.UpdatedAt);
+        parameters.Add("closedAt", pullRequest.ClosedAt);
+        parameters.Add("mergedAt", pullRequest.MergedAt);
+        parameters.Add("commentsCount", pullRequest.CommentsCount);
+        parameters.Add("commitsCount", pullRequest.CommitsCount);
+        parameters.Add("additionsCount", pullRequest.AdditionsCount);
+        parameters.Add("deletionsCount", pullRequest.DeletionsCount);
+        parameters.Add("changedFilesCount", pullRequest.ChangedFilesCount);
+        parameters.Add("creatorUserId", pullRequest.CreatorUserId == default ? null : pullRequest.CreatorUserId);
+        parameters.Add("creatorUserName", pullRequest.CreatorUserId == default ? null : pullRequest.CreatorUserName);
+        parameters.Add("mergerUserId", pullRequest.MergerUserId == default ? null : pullRequest.MergerUserId);
+        parameters.Add("mergerUserName", pullRequest.MergerUserId == default ? null : pullRequest.MergerUserName);
+        parameters.Add("repoId", repo.Id);
 
-        {
-            await using var connection = GetDbConnection();
-            var parameters = new DynamicParameters();
-            parameters.Add("id", pullRequest.Id);
-            parameters.Add("number", pullRequest.Number);
-            parameters.Add("state", pullRequest.State.StringValue);
-            parameters.Add("title", pullRequest.Title);
-            parameters.Add("body", pullRequest.Body);
-            parameters.Add("createdAt", pullRequest.CreatedAt);
-            parameters.Add("updatedAt", pullRequest.UpdatedAt);
-            parameters.Add("closedAt", pullRequest.ClosedAt);
-            parameters.Add("mergedAt", pullRequest.MergedAt);
-            parameters.Add("commentsCount", pullRequest.Comments);
-            parameters.Add("commitsCount", pullRequest.Commits);
-            parameters.Add("additionsCount", pullRequest.Additions);
-            parameters.Add("deletionsCount", pullRequest.Deletions);
-            parameters.Add("changedFilesCount", pullRequest.ChangedFiles);
-            parameters.Add("creatorUserId", pullRequest.User.Id);
-            parameters.Add("mergerUserId", pullRequest.MergedBy?.Id);
-            parameters.Add("repoId", repo.Id);
+        await _connection.ExecuteAsync(@"
+        insert into ""PullRequests""(""Id"", ""Number"", ""State"", ""Title"", ""Body"", ""CreatedAt"", ""UpdatedAt"", ""ClosedAt"", ""MergedAt"", ""CommentsCount"", ""CommitsCount"", ""AdditionsCount"", ""DeletionsCount"", ""ChangedFilesCount"", ""CreatorUserId"", ""CreatorUserName"", ""MergerUserId"", ""MergerUserName"", ""RepoId"")
+        values (@id, @number, @state, @title, @body, @createdAt, @updatedAt, @closedAt, @mergedAt, @commentsCount, @commitsCount, @additionsCount, @deletionsCount, @changedFilesCount, @creatorUserId, @creatorUserName, @mergerUserId, @mergerUserName, @repoId)
+        on conflict (""Id"") do
+            update set
+                ""State"" = excluded.""State"",
+                ""Title"" = excluded.""Title"",
+                ""Body"" = excluded.""Body"",
+                ""UpdatedAt"" = excluded.""UpdatedAt"",
+                ""ClosedAt"" = excluded.""ClosedAt"",
+                ""MergedAt"" = excluded.""MergedAt"",
+                ""CommentsCount"" = excluded.""CommentsCount"",
+                ""CommitsCount"" = excluded.""CommitsCount"",
+                ""AdditionsCount"" = excluded.""AdditionsCount"",
+                ""DeletionsCount"" = excluded.""DeletionsCount"",
+                ""ChangedFilesCount"" = excluded.""ChangedFilesCount"",
+                ""MergerUserId"" = excluded.""MergerUserId""
+        ", parameters);
 
-            await connection.ExecuteAsync(@"
-            insert into ""PullRequests""(""Id"", ""Number"", ""State"", ""Title"", ""Body"", ""CreatedAt"", ""UpdatedAt"", ""ClosedAt"", ""MergedAt"", ""CommentsCount"", ""CommitsCount"", ""AdditionsCount"", ""DeletionsCount"", ""ChangedFilesCount"", ""CreatorUserId"", ""MergerUserId"", ""RepoId"", ""ScanCompleted"")
-            values (@id, @number, @state, @title, @body, @createdAt, @updatedAt, @closedAt, @mergedAt, @commentsCount, @commitsCount, @additionsCount, @deletionsCount, @changedFilesCount, @creatorUserId, @mergerUserId, @repoId, false)
-            on conflict (""Id"") do
-                update set
-                    ""State"" = excluded.""State"",
-                    ""Title"" = excluded.""Title"",
-                    ""Body"" = excluded.""Body"",
-                    ""UpdatedAt"" = excluded.""UpdatedAt"",
-                    ""ClosedAt"" = excluded.""ClosedAt"",
-                    ""MergedAt"" = excluded.""MergedAt"",
-                    ""CommentsCount"" = excluded.""CommentsCount"",
-                    ""CommitsCount"" = excluded.""CommitsCount"",
-                    ""AdditionsCount"" = excluded.""AdditionsCount"",
-                    ""DeletionsCount"" = excluded.""DeletionsCount"",
-                    ""ChangedFilesCount"" = excluded.""ChangedFilesCount"",
-                    ""MergerUserId"" = excluded.""MergerUserId"",
-                    ""ScanCompleted"" = excluded.""ScanCompleted""
-            ", parameters);
-        }
+        var parameters2 = new DynamicParameters();
+        parameters2.Add("prId", pullRequest.Id);
+        parameters2.Add("repoId", pullRequest.RepoId);
 
-        foreach (var requestedReviewer in pullRequest.RequestedReviewers)
-        {
-            if (requestedReviewer is null)
-            {
-                continue;
-            }
-
-            await TryAddUser(requestedReviewer.Id, requestedReviewer.Name ?? "[unknown]", requestedReviewer.Email ?? "[unknown]");
-            await TryAddRequestedReview(pullRequest.Id, requestedReviewer.Id);
-        }
-
-        foreach (var label in pullRequest.Labels)
-        {
-            await TryAddPRLabel(pullRequest, label);
-        }
+        await _connection.ExecuteAsync(@"
+            update ""Repositories""
+            set ""LastPR"" = @prId
+            where ""Id"" = @repoId;
+        ", parameters2);
     }
 
-    private async Task TryAddPRLabel(PullRequest pullRequest, Label label)
+    private async Task TryAddPRLabel(Entities.PullRequest pullRequest, Label label)
     {
-        await using var connection = GetDbConnection();
         var parameters = new DynamicParameters();
         parameters.Add("prId", pullRequest.Id);
         parameters.Add("labelId", label.Id);
         parameters.Add("labelName", label.Name);
 
-        await connection.ExecuteAsync(@"
+        await _connection.ExecuteAsync(@"
             insert into ""PullRequestLabels""(""PullRequestId"", ""LabelId"", ""LabelName"")
             values (@prId, @labelId, @labelName)
             on conflict (""PullRequestId"", ""LabelId"") do nothing;
         ", parameters);
     }
 
-    private async Task TryAddRequestedReview(long pullRequestId, int userId)
+    public async Task TryAddRequestedReview(long pullRequestId, long userId)
     {
-        await using var connection = GetDbConnection();
+        if (userId == default)
+        {
+            return;
+        }
+
         var parameters = new DynamicParameters();
         parameters.Add("prId", pullRequestId);
         parameters.Add("userId", userId);
 
-        await connection.ExecuteAsync(@"
+        await _connection.ExecuteAsync(@"
             insert into ""PullRequestRequestedReviewers""(""PullRequestId"", ""ReviewerId"")
             values (@prId, @userId)
             on conflict (""PullRequestId"", ""ReviewerId"") do nothing;
         ", parameters);
     }
 
-    public async Task UpsertPullRequestReview(Repository repository, PullRequest pullRequest, PullRequestReview review)
+    public async Task UpsertPullRequestReview(Entities.Repository repository, Entities.PullRequest pullRequest, PullRequestReviews review)
     {
-        Log.Debug("{RepoName}: Processing PR {PRNumber} review {ReviewId}",repository.FullName, pullRequest.Number, review.Id);
+        Log.Debug("{RepoName}: Processing PR {PRNumber} review {ReviewId}",repository.Name, pullRequest.Number, review.Id);
 
-        await TryAddUser(review.User.Id, review.User.Name ?? review.User.Login, review.User.Email);
-        await TryAddRequestedReview(pullRequest.Id, review.User.Id);
-
-        await using var connection = GetDbConnection();
+        await TryAddRequestedReview(pullRequest.Id, review.UserId);
+        
         var parameters = new DynamicParameters();
         parameters.Add("id", review.Id);
-        parameters.Add("userId", review.User.Id);
+        parameters.Add("userId", review.UserId);
         parameters.Add("pullRequestId", pullRequest.Id);
-        parameters.Add("state", review.State.StringValue);
+        parameters.Add("state", review.State);
         parameters.Add("body", review.Body);
         parameters.Add("submittedAt", review.SubmittedAt);
 
-        await connection.ExecuteAsync(@"
+        await _connection.ExecuteAsync(@"
             update ""PullRequestReviews"" 
             set ""IsLatestReview"" = false 
             where ""PullRequestId"" = @pullRequestId
@@ -300,49 +278,64 @@ public class Database
         ", parameters);
     }
 
-    public async Task UpsertPullRequestCommit(Repository repository, PullRequest pullRequest, PullRequestCommit commit)
+    public async Task UpsertPullRequestCommit(Entities.Repository repository, Entities.PullRequest pullRequest, PullRequestCommits commit)
     {
-        Log.Debug("{RepoName}: Processing PR {PRNumber} commit {CommitSha}",repository.FullName, pullRequest.Number, commit.Sha);
+        Log.Debug("{RepoName}: Processing PR {PRNumber} commit {CommitSha}",repository.Name, pullRequest.Number, commit.Sha);
 
-        var userId = commit.Author?.Id ?? commit.Committer?.Id;
-        if (userId is not null)
-        {
-            await TryAddUser(
-                userId.Value,
-                commit.Author?.Login ?? commit.Author?.Name ?? commit.Committer?.Login ?? commit.Committer?.Name ?? "[unknown]",
-                commit.Author?.Email ?? commit.Committer?.Email ?? "[unknown]"
-            );
-        }
+        await TryAddCommit(repository, commit);
 
-        await AddCommit(repository, commit);
-
-        await using var connection = GetDbConnection();
         var parameters = new DynamicParameters();
         parameters.Add("pullRequestId", pullRequest.Id);
-        parameters.Add("userId", commit.Author?.Id ?? commit.Committer?.Id);
+        parameters.Add("userId", commit.UserId == default ? null : commit.UserId);
         parameters.Add("sha", commit.Sha);
 
-        await connection.ExecuteAsync(@"
+        await _connection.ExecuteAsync(@"
             insert into ""PullRequestCommits""(""PullRequestId"", ""UserId"", ""Sha"")
             values (@pullRequestId, @userId, @sha);
         ", parameters);
     }
 
-    public async Task MarkPRComplete(PullRequest pullRequest, Repository repository)
+    public async Task<bool> UserExists(long userId)
     {
-        await using var connection = GetDbConnection();
         var parameters = new DynamicParameters();
-        parameters.Add("id", pullRequest.Id);
-        parameters.Add("repoId", repository.Id);
+        parameters.Add("id", userId);
 
-        await connection.ExecuteAsync(@"
-            update ""PullRequests""
-            set ""ScanCompleted"" = true
-            where ""Id"" = @id;
-            
-            update ""Repositories""
-            set ""LastPR"" = @id
-            where ""Id"" = @repoId;
+        return await _connection.QuerySingleAsync<bool>(@"
+            select count(*) != 0 from ""Users""
+            where ""Id"" = @id
         ", parameters);
+    }
+
+    public async Task<string?> GetCursor(EntityType type, string id)
+    {
+        var parameters = new DynamicParameters();
+        parameters.Add("type", type.ToString());
+        parameters.Add("id", id);
+
+        return await _connection.QuerySingleOrDefaultAsync<string>(@"
+            select ""Cursor""
+            from ""Cursors""
+            where ""Type"" = @type and ""Id"" = @id
+        ", parameters);
+    }
+
+    public async Task SetCursor(EntityType type, string id, string? cursor)
+    {
+        var parameters = new DynamicParameters();
+        parameters.Add("type", type.ToString());
+        parameters.Add("id", id);
+        parameters.Add("cursor", cursor);
+
+        await _connection.ExecuteAsync(@"
+            insert into ""Cursors""(""Type"", ""Id"" , ""Cursor"")
+            values (@type, @id, @cursor)
+            on conflict (""Type"", ""Id"") do
+                update set ""Cursor"" = excluded.""Cursor""
+        ", parameters);
+    }
+
+    public void Dispose()
+    {
+        _connection?.Dispose();
     }
 }

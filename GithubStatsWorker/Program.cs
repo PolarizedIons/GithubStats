@@ -1,7 +1,11 @@
 ﻿using GithubStatsWorker;
 using Microsoft.Extensions.Configuration;
-using Octokit;
+using Octokit.GraphQL;
+using Octokit.GraphQL.Core;
+using Octokit.GraphQL.Model;
 using Serilog;
+using static Octokit.GraphQL.Variable;
+using Repository = GithubStatsWorker.Entities.Repository;
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Debug()
@@ -19,26 +23,29 @@ Log.Debug("Migrating db");
 db.Migrate();
 Log.Debug("Done migrating");
 
-var ghClient = new GitHubClient(new ProductHeaderValue("Polarizedions-repo-stats-puller"));
-ghClient.Credentials = new Credentials(config["Github:PAT"]);
+var productInfo = new ProductHeaderValue("Polarizedions-repo-stats-puller", "v0.1");
+var ghClient = new Connection(productInfo, config["Github:PAT"]);
 
 Log.Information("Fetching all repos for {Target}", config["Github:Target"]);
-var repos = new List<Repository>();
-while (true)
-{
-    var searchResult = await ghClient.Search.SearchRepo(new SearchRepositoriesRequest
+var reposQuery = new Query()
+    .Organization(Var("ownerId"))
+    .Repositories()
+    .AllPages()
+    .Select(repo => new Repository
     {
-        User = config["Github:Target"],
-    });
-    
-    repos.AddRange(searchResult.Items);
-    if (searchResult.TotalCount >= repos.Count)
-    {
-        break;
-    }
-}
+        Id = repo.DatabaseId ?? 0L,
+        Name = repo.Name,
+        Owner = repo.Owner.Login,
+        DefaultBranch = repo.DefaultBranchRef != null ? repo.DefaultBranchRef.Name : null,
+    })
+    .Compile();
 
-Log.Information("Got {Count} repos from {Target}", repos.Count, config["Github:Target"]);
+var repos = await ghClient.Run(reposQuery, new Dictionary<string, object>
+{
+    { "ownerId", config["Github:Target"] }
+});
+
+Log.Information("Got {Count} repos from {Target}", repos.Count(), config["Github:Target"]);
 
 // Log.Debug("Queueing workers...");
 // var workerThreads = int.Parse(config["Github:WorkerThreads"]);
@@ -47,15 +54,24 @@ Log.Information("Got {Count} repos from {Target}", repos.Count, config["Github:T
 
 // var leftToProcess = repos.Count;
 // using var resetEvent = new ManualResetEvent(false);
-foreach (var repo in repos)
+try
 {
-    var worker = new Worker(db, ghClient, repo);
-    // ThreadPool.QueueUserWorkItem(async _ =>
-    // {
-        await worker.UpdateRepoStats(null);
-    //     if (Interlocked.Decrement(ref leftToProcess) == 0)
-    //         resetEvent.Set();
-    // });
+    foreach (var repo in repos)
+    {
+        var worker = new Worker(db, ghClient, repo);
+        // ThreadPool.QueueUserWorkItem(async _ =>
+        // {
+        await worker.UpdateRepoStats();
+
+        //     if (Interlocked.Decrement(ref leftToProcess) == 0)
+        //         resetEvent.Set();
+        // });
+    }
 }
+finally
+{
+    db.Dispose();
+}
+
 // resetEvent.WaitOne();
 Log.Information("Done :)");

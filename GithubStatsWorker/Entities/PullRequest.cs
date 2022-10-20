@@ -1,4 +1,5 @@
 using Octokit;
+using Octokit.GraphQL;
 
 namespace GithubStatsWorker.Entities;
 
@@ -6,11 +7,10 @@ public class PullRequest
 {
     public long Id { get; set; }
     public long Number { get; set; }
-    public StringEnum<ItemState> State { get; set; }
+    public string State { get; set; }
     public string Title { get; set; }
     public string Body { get; set; }
-    
-    
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public DateTimeOffset? ClosedAt { get; set; }
@@ -24,6 +24,12 @@ public class PullRequest
 
 
     public long CreatorUserId { get; set; }
-    public long? MergerUserId { get; set; }
-    public ulong RepoId { get; set; }
+    public long MergerUserId { get; set; }
+    public long RepoId { get; set; }
+
+    internal List<PullRequestRequestedReviewer> RequestedReviewerIds { get; set; }
+    internal List<PullRequestReviews> Reviews { get; set; }
+    internal List<PullRequestCommits> Commits { get; set; }
+    internal string CreatorUserName { get; set; } = null!;
+    public string MergerUserName { get; set; } = null!;
 }

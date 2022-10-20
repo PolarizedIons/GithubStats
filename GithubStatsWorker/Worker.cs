@@ -1,4 +1,5 @@
-using Octokit;
+using GithubStatsWorker.Entities;
+using Octokit.GraphQL;
 using Serilog;
 
 namespace GithubStatsWorker;
@@ -6,117 +7,130 @@ namespace GithubStatsWorker;
 public class Worker
 {
     private readonly Database _db;
-    private readonly GitHubClient _gitHubClient;
+    private readonly Connection _gitHubClient;
     private readonly Repository _repo;
 
-    public Worker(Database db, GitHubClient gitHubClient, Repository repo)
+    public Worker(Database db, Connection gitHubClient, Repository repo)
     {
         _db = db;
         _gitHubClient = gitHubClient;
         _repo = repo;
     }
 
-    private void AvoidApiRateLimit()
+    public async Task UpdateRepoStats()
     {
-        var lastApiInfo = _gitHubClient.GetLastApiInfo();
-        if (lastApiInfo == null)
-        {
-            return;
-        }
-
-        var rateLimit = lastApiInfo.RateLimit;
-        if (rateLimit.Remaining > 5)
-        {
-            return;
-            
-        }
-
-        var sleepTime = rateLimit.Reset - DateTime.UtcNow;
-        do {
-            Log.Information("Sleeping to avoid rate limit, until {ResetTime} ({Time}s)", rateLimit.Reset, (int)(sleepTime.TotalSeconds));
-            Thread.Sleep(TimeSpan.FromSeconds(30));
-            sleepTime = rateLimit.Reset - DateTime.UtcNow;
-        } while (rateLimit.Reset > DateTime.UtcNow);
-    }
-
-    public async Task UpdateRepoStats(object? state)
-    {
-        Log.Debug("{RepoName}: Starting work...",_repo.FullName);
+        Log.Information("{RepoName}: Starting work...", _repo.Name);
         await _db.TryAddRepo(_repo);
 
         await UpdateCommitStats();
         await UpdatePrStats();
 
-        Log.Debug("{RepoName}: Done",_repo.FullName);
+        Log.Information("{RepoName}: Done",_repo.Name);
     }
 
     private async Task UpdateCommitStats()
     {
-        var lastCommit = await _db.GetLatestCommitForRepository(_repo.Id);
-        Log.Debug("{RepoName}: Last fetched commit was at {Timestamp}",_repo.FullName, lastCommit?.Date.ToString( ) ?? "never");
-
-        IReadOnlyList<GitHubCommit> commits = Array.Empty<GitHubCommit>();
-        try
+        var cursor = await _db.GetCursor(EntityType.Commit, _repo.Id.ToString());
+        var parameters = new Dictionary<string, object?>()
         {
-            AvoidApiRateLimit();
-            commits = await _gitHubClient.Repository.Commit.GetAll(_repo.Id, new CommitRequest()
-            {
-                Since = lastCommit?.Date,
-            });
-        }
-        catch (Exception)
+            { "repoName", _repo.Name },
+            { "repoOwner", _repo.Owner },
+            { "after", cursor }
+        };
+        Log.Information("{RepoName}: Fetching commits...", _repo.Name);
+        var repoContainsSomething = !string.IsNullOrEmpty(await _gitHubClient.Run(Queries.GetRepoDefaultBranch, parameters));
+        if (!repoContainsSomething)
         {
-            // Ignore: Git repository is empty
+            Log.Warning("{RepoName} repo contains no default branch, skipping adding commits", _repo.Name);
+            return;
         }
 
-        Log.Debug("{RepoName}: Processing {Count} commits",_repo.FullName, commits.Count);
+        var commits = await Queries.FetchAndPage(_gitHubClient, Queries.GetAllCommitsForRepo, parameters);
 
-        foreach (var commit in commits)
+        await foreach (var commit in commits)
         {
-            AvoidApiRateLimit();
-            await _db.TryAddUserFromCommit(commit);
-            await _db.AddCommit(_repo, commit);
+            await _db.TryAddCommit(_repo, commit);
+            await _db.SetCursor(EntityType.Commit, _repo.Id.ToString(), commits.LastEndCursor);
         }
     }
 
     private async Task UpdatePrStats()
     {
-        var lastPr = await _db.GetLastUpdatedPrForRepository(_repo.Id);
+        var cursor = await _db.GetCursor(EntityType.PR, _repo.Id.ToString());
 
-        AvoidApiRateLimit();
-        var prs = await _gitHubClient.Repository.PullRequest.GetAllForRepository(_repo.Id, new PullRequestRequest
+        var parameters = new Dictionary<string, object?>()
         {
-            State = ItemStateFilter.All,
-            SortDirection = SortDirection.Ascending,
-            SortProperty = PullRequestSort.Created,
-        });
+            { "repoName", _repo.Name },
+            { "repoOwner", _repo.Owner},
+            { "after", cursor },
+        };
 
-        Log.Debug("{RepoName} has {Count} total PRs, last processed #{PrevPrNumber}",_repo.FullName, prs.Count, lastPr?.Number ?? 0);
-        foreach (var pullRequest in prs.Skip((int)((lastPr?.Number ?? 1L) - 1L)))
+        Log.Information("{RepoName}: Fetching PRs...", _repo.Name);
+        var prStats = await Queries.FetchAndPage(_gitHubClient, Queries.GetAllPrsForRepo, parameters);
+
+        await foreach (var prStat in prStats)
         {
-            AvoidApiRateLimit();
-            if (lastPr is not null && pullRequest.Number <= lastPr.Number)
+            if (prStat.CreatorUserId != default && !(await _db.UserExists(prStat.CreatorUserId)))
             {
-                continue;
+                var userParams = new Dictionary<string, object>()
+                {
+                    { "login", prStat.CreatorUserName }
+                };
+                var user = await _gitHubClient.Run(Queries.GetUser, userParams);
+                await _db.TryAddUser(user.Id, user.Username, user.Email);
             }
 
-            await _db.UpsertPullRequest(_repo, pullRequest);
-
-            var reviews = await _gitHubClient.Repository.PullRequest.Review.GetAll(_repo.Id, pullRequest.Number);
-            foreach (var review in reviews)
+            if (prStat.MergerUserId != default && !(await _db.UserExists(prStat.MergerUserId)))
             {
-                AvoidApiRateLimit();
-                await _db.UpsertPullRequestReview(_repo, pullRequest, review);
+                var userParams = new Dictionary<string, object>()
+                {
+                    { "login", prStat.MergerUserName }
+                };
+                var user = await _gitHubClient.Run(Queries.GetUser, userParams);
+                await _db.TryAddUser(user.Id, user.Username, user.Email);
             }
 
-            var commits = await _gitHubClient.Repository.PullRequest.Commits(_repo.Id, pullRequest.Number);
-            foreach (var commit in commits)
+            await _db.UpsertPullRequest(_repo, prStat);
+            
+            foreach (var request in prStat.RequestedReviewerIds)
             {
-                AvoidApiRateLimit();
-                await _db.UpsertPullRequestCommit(_repo, pullRequest, commit);
+                if (request.ReviewerId != default && !(await _db.UserExists(request.ReviewerId)))
+                {
+                    var userParams = new Dictionary<string, object>()
+                    {
+                        { "login", request.ReviewerName }
+                    };
+                    var user = await _gitHubClient.Run(Queries.GetUser, userParams);
+                    await _db.TryAddUser(user.Id, user.Username, user.Email);
+                }
+                
+                await _db.TryAddRequestedReview(prStat.Id, request.ReviewerId);
             }
 
-            await _db.MarkPRComplete(pullRequest, _repo);
+            foreach (var review in prStat.Reviews)
+            {
+                if (review.UserId != default && !(await _db.UserExists(review.UserId)))
+                {
+                    var userParams = new Dictionary<string, object>()
+                    {
+                        { "login", review.UserName }
+                    };
+                    var user = await _gitHubClient.Run(Queries.GetUser, userParams);
+                    await _db.TryAddUser(user.Id, user.Username, user.Email);
+                }
+
+                await _db.UpsertPullRequestReview(_repo, prStat, review);
+            }
+            
+            foreach (var commit in prStat.Commits)
+            {
+                await _db.UpsertPullRequestCommit(_repo, prStat, commit);
+            }
+            // foreach (var label in prStats.Labels)
+            // {
+            //     await TryAddPRLabel(pullRequest, label);
+            // }
+            await _db.SetCursor(EntityType.PR, _repo.Id.ToString(), prStats.LastEndCursor);
         }
     }
 }
