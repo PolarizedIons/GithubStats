@@ -70,7 +70,7 @@ public class Worker
 
         await foreach (var prStat in prStats)
         {
-            if (prStat.CreatorUserId != default && !(await _db.UserExists(prStat.CreatorUserId)))
+            if (prStat.CreatorUserId is {} && prStat.CreatorIsHuman && !(await _db.UserExists(prStat.CreatorUserId.Value)))
             {
                 var userParams = new Dictionary<string, object>()
                 {
@@ -80,7 +80,7 @@ public class Worker
                 await _db.TryAddUser(user.Id, user.Username, user.Email);
             }
 
-            if (prStat.MergerUserId != default && !(await _db.UserExists(prStat.MergerUserId)))
+            if (prStat.MergerUserId is { } && prStat.MergerIsHuman && !(await _db.UserExists(prStat.MergerUserId.Value)))
             {
                 var userParams = new Dictionary<string, object>()
                 {
@@ -109,7 +109,7 @@ public class Worker
 
             foreach (var review in prStat.Reviews)
             {
-                if (review.UserId != default && !(await _db.UserExists(review.UserId)))
+                if (review.UserId is { } && !(await _db.UserExists(review.UserId.Value)))
                 {
                     var userParams = new Dictionary<string, object>()
                     {

@@ -15,16 +15,16 @@ public class PullRequest
     public DateTimeOffset UpdatedAt { get; set; }
     public DateTimeOffset? ClosedAt { get; set; }
     public DateTimeOffset? MergedAt { get; set; }
-    
-    public long CommentsCount { get; set; } 
+
+    public long CommentsCount { get; set; }
     public long CommitsCount { get; set; }
     public long AdditionsCount { get; set; }
     public long DeletionsCount { get; set; }
     public long ChangedFilesCount { get; set; }
 
 
-    public long CreatorUserId { get; set; }
-    public long MergerUserId { get; set; }
+    public long? CreatorUserId { get; set; }
+    public long? MergerUserId { get; set; }
     public long RepoId { get; set; }
 
     internal List<PullRequestRequestedReviewer> RequestedReviewerIds { get; set; }
@@ -32,4 +32,7 @@ public class PullRequest
     internal List<PullRequestCommits> Commits { get; set; }
     internal string CreatorUserName { get; set; } = null!;
     public string MergerUserName { get; set; } = null!;
+
+    public bool CreatorIsHuman { get; set; }
+    public bool MergerIsHuman { get; set; }
 }

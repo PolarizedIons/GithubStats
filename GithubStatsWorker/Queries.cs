@@ -48,7 +48,7 @@ public static class Queries
         Direction = OrderDirection.Asc,
     };
 
-    private static readonly Regex AvatarIdRegex = new("https:\\/\\/avatars\\.githubusercontent\\.com\\/.*?\\/(\\d+).*");
+    private static readonly Regex AvatarIdRegex = new("https:\\/\\/avatars\\.githubusercontent\\.com\\/u\\/(\\d+).*");
 
     public static readonly ICompiledQuery<User> GetUser = new Query()
         .User(Var("login"))
@@ -60,7 +60,7 @@ public static class Queries
         })
         .Compile();
 
-    private static long AvatarUrlToId(this string url) => long.Parse(AvatarIdRegex.Match(url).Groups[1].Value);
+    private static long? AvatarUrlToId(this string url) => AvatarIdRegex.IsMatch(url) ? long.Parse(AvatarIdRegex.Match(url).Groups[1].Value) : null;
 
     public static readonly ICompiledQuery<GQLPagedResponse<PullRequest>> GetAllPrsForRepo = new Query()
         .Repository(Var("repoName"), Var("repoOwner"))
@@ -85,10 +85,12 @@ public static class Queries
                         AdditionsCount = pr.Additions,
                         DeletionsCount = pr.Deletions,
                         ChangedFilesCount = pr.ChangedFiles,
-                        CreatorUserId = pr.Author is User ? pr.Author.SingleOrDefault().AvatarUrl(100).AvatarUrlToId() : default,
+                        CreatorUserId = pr.Author.AvatarUrl(100).AvatarUrlToId(),
+                        CreatorIsHuman = pr.Author.ResourcePath.ToString().StartsWith("/" + pr.Author.Login),
                         CreatorUserName = pr.Author.Login,
                         MergerUserId = pr.MergedBy.Select(x => x.AvatarUrl(100).AvatarUrlToId()).SingleOrDefault(),
-                        MergerUserName = pr.MergedBy.Select(x=> x.Login).SingleOrDefault(),
+                        MergerUserName = pr.MergedBy.Select(x => x.Login).SingleOrDefault(),
+                        MergerIsHuman = pr.MergedBy.Select(x => x.ResourcePath.ToString().StartsWith("/" + pr.MergedBy.Login)).SingleOrDefault(),
                         RepoId = pr.Repository.DatabaseId ?? 0L,
 
                         RequestedReviewerIds = pr.ReviewRequests(100, null, null, null)

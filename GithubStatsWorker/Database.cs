@@ -181,13 +181,15 @@ public class Database : IDisposable
         parameters.Add("changedFilesCount", pullRequest.ChangedFilesCount);
         parameters.Add("creatorUserId", pullRequest.CreatorUserId == default ? null : pullRequest.CreatorUserId);
         parameters.Add("creatorUserName", pullRequest.CreatorUserId == default ? null : pullRequest.CreatorUserName);
+        parameters.Add("creatorIsHuman", pullRequest.CreatorIsHuman);
         parameters.Add("mergerUserId", pullRequest.MergerUserId == default ? null : pullRequest.MergerUserId);
         parameters.Add("mergerUserName", pullRequest.MergerUserId == default ? null : pullRequest.MergerUserName);
+        parameters.Add("mergerIsHuman", pullRequest.MergerIsHuman);
         parameters.Add("repoId", repo.Id);
 
         await _connection.ExecuteAsync(@"
-        insert into ""PullRequests""(""Id"", ""Number"", ""State"", ""Title"", ""Body"", ""CreatedAt"", ""UpdatedAt"", ""ClosedAt"", ""MergedAt"", ""CommentsCount"", ""CommitsCount"", ""AdditionsCount"", ""DeletionsCount"", ""ChangedFilesCount"", ""CreatorUserId"", ""CreatorUserName"", ""MergerUserId"", ""MergerUserName"", ""RepoId"")
-        values (@id, @number, @state, @title, @body, @createdAt, @updatedAt, @closedAt, @mergedAt, @commentsCount, @commitsCount, @additionsCount, @deletionsCount, @changedFilesCount, @creatorUserId, @creatorUserName, @mergerUserId, @mergerUserName, @repoId)
+        insert into ""PullRequests""(""Id"", ""Number"", ""State"", ""Title"", ""Body"", ""CreatedAt"", ""UpdatedAt"", ""ClosedAt"", ""MergedAt"", ""CommentsCount"", ""CommitsCount"", ""AdditionsCount"", ""DeletionsCount"", ""ChangedFilesCount"", ""CreatorUserId"", ""CreatorUserName"", ""CreatorIsHuman"", ""MergerUserId"", ""MergerUserName"", ""MergerIsHuman"", ""RepoId"")
+        values (@id, @number, @state, @title, @body, @createdAt, @updatedAt, @closedAt, @mergedAt, @commentsCount, @commitsCount, @additionsCount, @deletionsCount, @changedFilesCount, @creatorUserId, @creatorUserName, @creatorIsHuman, @mergerUserId, @mergerUserName, @mergerIsHuman, @repoId)
         on conflict (""Id"") do
             update set
                 ""State"" = excluded.""State"",
@@ -229,9 +231,9 @@ public class Database : IDisposable
         ", parameters);
     }
 
-    public async Task TryAddRequestedReview(long pullRequestId, long userId)
+    public async Task TryAddRequestedReview(long pullRequestId, long? userId)
     {
-        if (userId == default)
+        if (userId is { })
         {
             return;
         }

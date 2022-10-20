@@ -24,8 +24,10 @@ public class TrackPrStats : Migration
             .WithColumn("ChangedFilesCount").AsInt64().NotNullable()
             .WithColumn("CreatorUserId").AsInt64().Nullable().ForeignKey("Users", "Id")
             .WithColumn("CreatorUserName").AsString().Nullable()
+            .WithColumn("CreatorIsHuman").AsBoolean().NotNullable()
             .WithColumn("MergerUserId").AsInt64().Nullable().ForeignKey("Users", "Id")
             .WithColumn("MergerUserName").AsString().Nullable()
+            .WithColumn("MergerIsHuman").AsBoolean().NotNullable()
             .WithColumn("RepoId").AsInt64().NotNullable().ForeignKey("Repositories", "Id");
 
         Alter.Table("Repositories")
