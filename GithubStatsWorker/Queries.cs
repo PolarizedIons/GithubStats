@@ -64,7 +64,7 @@ public static class Queries
 
     public static readonly ICompiledQuery<GQLPagedResponse<PullRequest>> GetAllPrsForRepo = new Query()
         .Repository(Var("repoName"), Var("repoOwner"))
-        .PullRequests(orderBy: PROrder, states: new [] { PullRequestState.Open, PullRequestState.Merged, PullRequestState.Closed }, first: 25, after: Var("after"))
+        .PullRequests(orderBy: PROrder, states: new [] { PullRequestState.Open, PullRequestState.Merged, PullRequestState.Closed }, first: 10, after: Var("after"))
         .Select(connection => new GQLPagedResponse<PullRequest>
         {
             HasNextPage = connection.PageInfo.HasNextPage,
@@ -125,7 +125,7 @@ public static class Queries
                             })
                             .ToList(),
                         
-                        Commits = pr.Commits(100, null, null, null)
+                        Commits = pr.Commits(500, null, null, null)
                             // .AllPages()
                             .Nodes
                             .Select(commit => new PullRequestCommits
