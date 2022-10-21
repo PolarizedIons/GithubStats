@@ -125,7 +125,7 @@ public static class Queries
                             })
                             .ToList(),
                         
-                        Commits = pr.Commits(500, null, null, null)
+                        Commits = pr.Commits(250, null, null, null)
                             // .AllPages()
                             .Nodes
                             .Select(commit => new PullRequestCommits
