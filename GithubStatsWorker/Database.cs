@@ -179,11 +179,11 @@ public class Database : IDisposable
         parameters.Add("additionsCount", pullRequest.AdditionsCount);
         parameters.Add("deletionsCount", pullRequest.DeletionsCount);
         parameters.Add("changedFilesCount", pullRequest.ChangedFilesCount);
-        parameters.Add("creatorUserId", pullRequest.CreatorUserId == default ? null : pullRequest.CreatorUserId);
-        parameters.Add("creatorUserName", pullRequest.CreatorUserId == default ? null : pullRequest.CreatorUserName);
+        parameters.Add("creatorUserId", pullRequest.CreatorUserId == 0L ? null : pullRequest.CreatorUserId);
+        parameters.Add("creatorUserName", pullRequest.CreatorUserName);
         parameters.Add("creatorIsHuman", pullRequest.CreatorIsHuman);
-        parameters.Add("mergerUserId", pullRequest.MergerUserId == default ? null : pullRequest.MergerUserId);
-        parameters.Add("mergerUserName", pullRequest.MergerUserId == default ? null : pullRequest.MergerUserName);
+        parameters.Add("mergerUserId", pullRequest.MergerUserId == 0L ? null : pullRequest.MergerUserId);
+        parameters.Add("mergerUserName", pullRequest.MergerUserName);
         parameters.Add("mergerIsHuman", pullRequest.MergerIsHuman);
         parameters.Add("repoId", repo.Id);
 
