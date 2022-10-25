@@ -235,7 +235,7 @@ public class Database : IDisposable
 
     public async Task TryAddRequestedReview(long pullRequestId, long? userId)
     {
-        if (userId is { })
+        if (userId is not { })
         {
             return;
         }
