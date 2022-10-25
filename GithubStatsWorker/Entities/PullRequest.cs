@@ -27,6 +27,8 @@ public class PullRequest
     public long? MergerUserId { get; set; }
     public long RepoId { get; set; }
 
+    public string TargetRef { get; set; }
+    public string FromRef { get; set; }
     internal List<PullRequestRequestedReviewer> RequestedReviewerIds { get; set; }
     internal List<PullRequestReviews> Reviews { get; set; }
     internal List<PullRequestCommits> Commits { get; set; }

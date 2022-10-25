@@ -186,10 +186,12 @@ public class Database : IDisposable
         parameters.Add("mergerUserName", pullRequest.MergerUserName);
         parameters.Add("mergerIsHuman", pullRequest.MergerIsHuman);
         parameters.Add("repoId", repo.Id);
+        parameters.Add("targetRef", pullRequest.TargetRef);
+        parameters.Add("fromRef", pullRequest.FromRef);
 
         await _connection.ExecuteAsync(@"
-        insert into ""PullRequests""(""Id"", ""Number"", ""State"", ""Title"", ""Body"", ""CreatedAt"", ""UpdatedAt"", ""ClosedAt"", ""MergedAt"", ""CommentsCount"", ""CommitsCount"", ""AdditionsCount"", ""DeletionsCount"", ""ChangedFilesCount"", ""CreatorUserId"", ""CreatorUserName"", ""CreatorIsHuman"", ""MergerUserId"", ""MergerUserName"", ""MergerIsHuman"", ""RepoId"")
-        values (@id, @number, @state, @title, @body, @createdAt, @updatedAt, @closedAt, @mergedAt, @commentsCount, @commitsCount, @additionsCount, @deletionsCount, @changedFilesCount, @creatorUserId, @creatorUserName, @creatorIsHuman, @mergerUserId, @mergerUserName, @mergerIsHuman, @repoId)
+        insert into ""PullRequests""(""Id"", ""Number"", ""State"", ""Title"", ""Body"", ""CreatedAt"", ""UpdatedAt"", ""ClosedAt"", ""MergedAt"", ""CommentsCount"", ""CommitsCount"", ""AdditionsCount"", ""DeletionsCount"", ""ChangedFilesCount"", ""CreatorUserId"", ""CreatorUserName"", ""CreatorIsHuman"", ""MergerUserId"", ""MergerUserName"", ""MergerIsHuman"", ""RepoId"", ""TargetRef"", ""FromRef"")
+        values (@id, @number, @state, @title, @body, @createdAt, @updatedAt, @closedAt, @mergedAt, @commentsCount, @commitsCount, @additionsCount, @deletionsCount, @changedFilesCount, @creatorUserId, @creatorUserName, @creatorIsHuman, @mergerUserId, @mergerUserName, @mergerIsHuman, @repoId, @targetRef, @fromRef)
         on conflict (""Id"") do
             update set
                 ""State"" = excluded.""State"",

@@ -92,6 +92,8 @@ public static class Queries
                         MergerUserName = pr.MergedBy.Select(x => x.Login).SingleOrDefault(),
                         MergerIsHuman = pr.MergedBy.Select(x => x.ResourcePath.ToString().StartsWith("/" + pr.MergedBy.Login)).SingleOrDefault(),
                         RepoId = pr.Repository.DatabaseId ?? 0L,
+                        TargetRef = pr.BaseRefName,
+                        FromRef = pr.HeadRefName,
 
                         RequestedReviewerIds = pr.ReviewRequests(100, null, null, null)
                             // .AllPages()
@@ -124,7 +126,8 @@ public static class Queries
                                 SubmittedAt = review.SubmittedAt,
                             })
                             .ToList(),
-                        
+
+                        // NOTE: API limitation: can only get 250 commits per PR. There are no pages that contain the rest
                         Commits = pr.Commits(250, null, null, null)
                             // .AllPages()
                             .Nodes

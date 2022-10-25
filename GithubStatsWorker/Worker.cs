@@ -50,8 +50,9 @@ public class Worker
         await foreach (var commit in commits)
         {
             await _db.TryAddCommit(_repo, commit);
-            await _db.SetCursor(EntityType.Commit, _repo.Id.ToString(), commits.LastEndCursor);
         }
+
+        await _db.SetCursor(EntityType.Commit, _repo.Id.ToString(), commits.LastEndCursor);
     }
 
     private async Task UpdatePrStats()
@@ -130,7 +131,8 @@ public class Worker
             // {
             //     await TryAddPRLabel(pullRequest, label);
             // }
-            await _db.SetCursor(EntityType.PR, _repo.Id.ToString(), prStats.LastEndCursor);
         }
+
+        await _db.SetCursor(EntityType.PR, _repo.Id.ToString(), prStats.LastEndCursor);
     }
 }
