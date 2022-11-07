@@ -1,8 +1,6 @@
 ﻿using GithubStatsWorker;
 using Microsoft.Extensions.Configuration;
 using Octokit.GraphQL;
-using Octokit.GraphQL.Core;
-using Octokit.GraphQL.Model;
 using Serilog;
 using static Octokit.GraphQL.Variable;
 using Repository = GithubStatsWorker.Entities.Repository;
@@ -23,7 +21,7 @@ Log.Debug("Migrating db");
 db.Migrate();
 Log.Debug("Done migrating");
 
-var productInfo = new ProductHeaderValue("Polarizedions-repo-stats-puller", "v0.1");
+var productInfo = new ProductHeaderValue("PolarizedIons-repo-stats-puller", "v0.1");
 var ghClient = new Connection(productInfo, config["Github:PAT"]);
 
 Log.Information("Fetching all repos for {Target}", config["Github:Target"]);
@@ -47,25 +45,12 @@ var repos = await ghClient.Run(reposQuery, new Dictionary<string, object>
 
 Log.Information("Got {Count} repos from {Target}", repos.Count(), config["Github:Target"]);
 
-// Log.Debug("Queueing workers...");
-// var workerThreads = int.Parse(config["Github:WorkerThreads"]);
-// ThreadPool.SetMinThreads(1, 1);
-// ThreadPool.SetMaxThreads(workerThreads,workerThreads);
-
-// var leftToProcess = repos.Count;
-// using var resetEvent = new ManualResetEvent(false);
 try
 {
     foreach (var repo in repos)
     {
         var worker = new Worker(db, ghClient, repo);
-        // ThreadPool.QueueUserWorkItem(async _ =>
-        // {
         await worker.UpdateRepoStats();
-
-        //     if (Interlocked.Decrement(ref leftToProcess) == 0)
-        //         resetEvent.Set();
-        // });
     }
 }
 finally

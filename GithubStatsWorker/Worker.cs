@@ -127,10 +127,6 @@ public class Worker
             {
                 await _db.UpsertPullRequestCommit(_repo, prStat, commit);
             }
-            // foreach (var label in prStats.Labels)
-            // {
-            //     await TryAddPRLabel(pullRequest, label);
-            // }
         }
 
         await _db.SetCursor(EntityType.PR, _repo.Id.ToString(), prStats.LastEndCursor);
