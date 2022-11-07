@@ -9,6 +9,8 @@ using Microsoft.Extensions.Configuration;
 using Npgsql;
 using Octokit.GraphQL.Model;
 using Serilog;
+using PullRequest = GithubStatsWorker.Entities.PullRequest;
+using Repository = GithubStatsWorker.Entities.Repository;
 
 
 namespace GithubStatsWorker;
@@ -235,7 +237,7 @@ public class Database : IDisposable
 
     public async Task TryAddRequestedReview(long pullRequestId, long? userId)
     {
-        if (userId is not { })
+        if (userId is not null or 0)
         {
             return;
         }
@@ -296,6 +298,24 @@ public class Database : IDisposable
         await _connection.ExecuteAsync(@"
             insert into ""PullRequestCommits""(""PullRequestId"", ""UserId"", ""Sha"")
             values (@pullRequestId, @userId, @sha);
+        ", parameters);
+    }
+
+    public async Task UpsertPullRequestFile(Repository repository, PullRequest pr, PullRequestFile file)
+    {
+        Log.Debug("{RepoName}: Processing PR {PRNumber} file {Path}",repository.Name, pr.Number, file.FilePath);
+
+        var parameters = new DynamicParameters();
+        parameters.Add("pullRequestId", pr.Id);
+        parameters.Add("filePath", file.FilePath);
+        parameters.Add("changeType", file.ChangeType);
+        parameters.Add("additions", file.Additions);
+        parameters.Add("deletions", file.Deletions);
+
+        await _connection.ExecuteAsync(@"
+            insert into ""PullRequestFiles""(""PullRequestId"", ""FilePath"", ""ChangeType"", ""Additions"", ""Deletions"")
+            values (@pullRequestId, @filePath, @changeType, @additions, @deletions)
+            on conflict do nothing;
         ", parameters);
     }
 

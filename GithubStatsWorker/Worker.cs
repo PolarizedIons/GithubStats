@@ -122,10 +122,25 @@ public class Worker
 
                 await _db.UpsertPullRequestReview(_repo, prStat, review);
             }
-            
+
             foreach (var commit in prStat.Commits)
             {
                 await _db.UpsertPullRequestCommit(_repo, prStat, commit);
+            }
+
+            var filesParams = new Dictionary<string, object?>()
+            {
+                { "repoName", _repo.Name },
+                { "repoOwner", _repo.Owner },
+                { "prNumber", prStat.Number },
+            };
+            var prFiles = await Queries.FetchAndPage(_gitHubClient, Queries.GetPRFileChanges, filesParams);
+            await foreach (var prFile in prFiles)
+            {
+                // GH's api doesn't have this property :(
+                prFile.PullRequestId = prStat.Id;
+
+                await _db.UpsertPullRequestFile(_repo, prStat, prFile);
             }
         }
 

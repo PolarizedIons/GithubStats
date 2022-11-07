@@ -42,7 +42,17 @@ public class PagedResponse<T> : IAsyncEnumerable<T>
         }
 
         Log.Debug("Loading page {Count}...", ++_pageNumber);
-        var page = await _connection.Run(_query, _parameters);
+        GQLPagedResponse<T>? page;
+        try
+        {
+            page = await _connection.Run(_query, _parameters);
+        }
+        catch
+        {
+            _hasNextPage = false;
+            return new List<T>();
+        }
+
         _hasNextPage = page.HasNextPage;
         _nextPageCursor = page.EndCursor;
         _parameters["after"] = _nextPageCursor;

@@ -95,8 +95,8 @@ public static class Queries
                         TargetRef = pr.BaseRefName,
                         FromRef = pr.HeadRefName,
 
+                        // Assuming there will be no more than 100 reviewers
                         RequestedReviewerIds = pr.ReviewRequests(100, null, null, null)
-                            // .AllPages()
                             .Nodes
                             .Select(reviewRequest => new PullRequestRequestedReviewer
                                 {
@@ -112,8 +112,8 @@ public static class Queries
                                 })
                             .ToList(),
                         
+                        // Assuming there will be no more than 100 reviews
                         Reviews = pr.Reviews(100, null, null, null, null, null)
-                            // .AllPages()
                             .Nodes
                             .Select(review => new PullRequestReviews
                             {
@@ -129,7 +129,6 @@ public static class Queries
 
                         // NOTE: API limitation: can only get 250 commits per PR. There are no pages that contain the rest
                         Commits = pr.Commits(250, null, null, null)
-                            // .AllPages()
                             .Nodes
                             .Select(commit => new PullRequestCommits
                             {
@@ -141,10 +140,30 @@ public static class Queries
                                 UserEmail = commit.Commit.Committer.Email,
                                 PullRequestId = pr.DatabaseId ?? 0L,
                             })
-                            .ToList()
-                    })
+                            .ToList(),
+                })
                 .ToList()
                 })
+        .Compile();
+
+    public static readonly ICompiledQuery<GQLPagedResponse<PullRequestFile>> GetPRFileChanges = new Query()
+        .Repository(Var("repoName"), Var("repoOwner"))
+        .PullRequest(number: Var("prNumber"))
+        .Files(first: 100, after: Var("after"))
+        .Select(connection => new GQLPagedResponse<PullRequestFile>
+        {
+            HasNextPage = connection.PageInfo.HasNextPage,
+            EndCursor = connection.PageInfo.EndCursor,
+            Items = connection.Nodes
+                .Select(file => new PullRequestFile
+                {
+                    Additions = file.Additions,
+                    Deletions = file.Deletions,
+                    ChangeType = file.ChangeType.ToString(),
+                    FilePath = file.Path,
+                })
+                .ToList(),
+        })
         .Compile();
 
     public static Task<PagedResponse<T>> FetchAndPage<T>(IConnection connection, ICompiledQuery<GQLPagedResponse<T>> query, Dictionary<string, object?>? parameters = null)
