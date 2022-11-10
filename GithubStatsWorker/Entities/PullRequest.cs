@@ -1,5 +1,6 @@
 using Octokit;
 using Octokit.GraphQL;
+using Octokit.GraphQL.Core;
 
 namespace GithubStatsWorker.Entities;
 
@@ -37,4 +38,6 @@ public class PullRequest
 
     public bool CreatorIsHuman { get; set; }
     public bool MergerIsHuman { get; set; }
+
+    public GQLPagedResponse<PullRequestFile> FirstPageFiles { get; set; }
 }

@@ -11,6 +11,14 @@ public class GQLPagedResponse<T>
     public List<T> Items { get; set; } = new();
 }
 
+public static class PagedResponseExtensions
+{
+    public static PagedResponse<T> CreateQuery<T>(this IConnection connection, ICompiledQuery<GQLPagedResponse<T>> query, Dictionary<string, object?>? parameters)
+    {
+        return new PagedResponse<T>(connection, query, parameters);
+    }
+}
+
 public class PagedResponse<T> : IAsyncEnumerable<T>
 {
     private readonly IConnection _connection;

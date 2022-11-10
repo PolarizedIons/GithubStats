@@ -131,7 +131,7 @@ public class Database : IDisposable
 
     private async Task TryAddCommit(Entities.Repository repo, string sha, string message, DateTimeOffset date, long userId, string commitUserName, string commitEmail)
     {
-        Log.Debug("Adding commit {Sha} in {RepoName} by {Author}",sha, repo.Name, commitUserName);
+        Log.Debug("{RepoName}: Adding commit {Sha} by {Author}",sha, repo.Name, commitUserName);
 
         var parameters = new DynamicParameters();
         parameters.Add("sha", sha);

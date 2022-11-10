@@ -141,9 +141,26 @@ public static class Queries
                                 PullRequestId = pr.DatabaseId ?? 0L,
                             })
                             .ToList(),
+                        
+                        FirstPageFiles = pr.Files(100, null, null, null)
+                            .Select(fileConnection => new GQLPagedResponse<PullRequestFile>
+                            {
+                                HasNextPage = fileConnection.PageInfo.HasNextPage,
+                                EndCursor = fileConnection.PageInfo.EndCursor,
+                                Items = fileConnection.Nodes
+                                    .Select(file => new PullRequestFile
+                                    {
+                                        Additions = file.Additions,
+                                        Deletions = file.Deletions,
+                                        ChangeType = file.ChangeType.ToString(),
+                                        FilePath = file.Path,
+                                    })
+                                .ToList(),
+                            })
+                            .SingleOrDefault(),
                 })
                 .ToList()
-                })
+            })
         .Compile();
 
     public static readonly ICompiledQuery<GQLPagedResponse<PullRequestFile>> GetPRFileChanges = new Query()
@@ -165,9 +182,4 @@ public static class Queries
                 .ToList(),
         })
         .Compile();
-
-    public static Task<PagedResponse<T>> FetchAndPage<T>(IConnection connection, ICompiledQuery<GQLPagedResponse<T>> query, Dictionary<string, object?>? parameters = null)
-    {
-        return Task.FromResult(new PagedResponse<T>(connection, query, parameters));
-    }
 }

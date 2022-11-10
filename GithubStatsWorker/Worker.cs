@@ -45,7 +45,7 @@ public class Worker
             return;
         }
 
-        var commits = await Queries.FetchAndPage(_gitHubClient, Queries.GetAllCommitsForRepo, parameters);
+        var commits = _gitHubClient.CreateQuery(Queries.GetAllCommitsForRepo, parameters);
 
         await foreach (var commit in commits)
         {
@@ -67,7 +67,7 @@ public class Worker
         };
 
         Log.Information("{RepoName}: Fetching PRs...", _repo.Name);
-        var prStats = await Queries.FetchAndPage(_gitHubClient, Queries.GetAllPrsForRepo, parameters);
+        var prStats = _gitHubClient.CreateQuery(Queries.GetAllPrsForRepo, parameters);
 
         await foreach (var prStat in prStats)
         {
@@ -128,19 +128,32 @@ public class Worker
                 await _db.UpsertPullRequestCommit(_repo, prStat, commit);
             }
 
-            var filesParams = new Dictionary<string, object?>()
-            {
-                { "repoName", _repo.Name },
-                { "repoOwner", _repo.Owner },
-                { "prNumber", prStat.Number },
-            };
-            var prFiles = await Queries.FetchAndPage(_gitHubClient, Queries.GetPRFileChanges, filesParams);
-            await foreach (var prFile in prFiles)
+            foreach (var prFile in prStat.FirstPageFiles.Items)
             {
                 // GH's api doesn't have this property :(
                 prFile.PullRequestId = prStat.Id;
 
                 await _db.UpsertPullRequestFile(_repo, prStat, prFile);
+            }
+
+            if (prStat.FirstPageFiles.HasNextPage)
+            {
+                var filesParams = new Dictionary<string, object?>()
+                {
+                    { "repoName", _repo.Name },
+                    { "repoOwner", _repo.Owner },
+                    { "prNumber", prStat.Number },
+                    { "after", prStat.FirstPageFiles.EndCursor }
+                };
+
+                var prFiles = _gitHubClient.CreateQuery(Queries.GetPRFileChanges, filesParams);
+                await foreach (var prFile in prFiles)
+                {
+                    // GH's api doesn't have this property :(
+                    prFile.PullRequestId = prStat.Id;
+
+                    await _db.UpsertPullRequestFile(_repo, prStat, prFile);
+                }
             }
         }
 
